@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <Inkplate.h>
 #include <NimBLEDevice.h>
-#include <CustomServerCallbacks.h>
+#include <CustomCallbacks.h>
+#include <LittleFS.h>
 
 // All vars declared outside of functions are static and persist for the lifetime of the program.
 // static allocates memory for the CustomServerCallbacks object at compile time, ensuring it persists for the lifetime of the program.
@@ -16,15 +17,32 @@ constexpr char DEVICE_NAME[] = "Epaper Keychain";
 constexpr char SERVICE_UUID[] =
     "a6b10001-7a4d-4c39-9f60-8c835f21e801";
 
-// represents the characteristic that will be used to send data to the phone. The phone will read this characteristic to get the data.
-// you can create different characterstics for different data; e.g image data, text data.
+// Represents the characteristic that will be used to send data to the phone. The phone will read this characteristic to get the data.
+// You can create different characterstics for different data; e.g image data, text data.
 constexpr char CHARACTERISTIC_UUID[] =
     "a6b10002-7a4d-4c39-9f60-8c835f21e801";
+
+[[noreturn]] void haltStartup(const char* message) {
+    Serial.println(message);
+    Serial.flush();
+
+    esp_deep_sleep_start();
+
+    // defensive fallback if deep sleep fails.
+    while (true) {
+        delay(1000);
+    }
+}
 
 void setup() {
     // 1. Initialize the serial monitor for debugging
     Serial.begin(115200);
     Serial.println("Booting up...");
+
+    // Initialize the filesystem before creating hardware or BLE resources.
+    if (!LittleFS.begin()) {
+        haltStartup("Failed to initialize LittleFS");
+    }
 
     // 2. Initialize the e-paper hardware registers
     display.begin();

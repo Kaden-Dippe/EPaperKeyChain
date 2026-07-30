@@ -1,5 +1,6 @@
 #include <NimBLEDevice.h>
 #include <Arduino.h>
+#include <LittleFS.h>
 
 class CustomServerCallbacks : public NimBLEServerCallbacks {
 public:
@@ -13,4 +14,9 @@ public:
         // This tells the BLE radio to start broadcasting our UUIDs again
         NimBLEDevice::startAdvertising();
     }
+};
+
+class CustomCharacteristicCallbacks : public NimBLECharacteristicCallbacks {
+public:
+
 };
