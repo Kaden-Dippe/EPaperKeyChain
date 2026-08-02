@@ -3,12 +3,13 @@
 #include <NimBLEDevice.h>
 #include <CustomCallbacks.h>
 #include <LittleFS.h>
+#include <TransferState.h>
 
 // All vars declared outside of functions are static and persist for the lifetime of the program.
 // static allocates memory for the CustomServerCallbacks object at compile time, ensuring it persists for the lifetime of the program.
 Inkplate display; 
 
-CustomServerCallbacks customServerCallbacks;
+ControlCallbacks customServerCallbacks;
 
 // This is the name that will show up on the phone when scanning for BLE devices.
 constexpr char DEVICE_NAME[] = "Epaper Keychain";
