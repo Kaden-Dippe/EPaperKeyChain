@@ -4,7 +4,8 @@ New characteristics:
 		- image start/can you take an image (can I send an image)
 		- image end (no more data to send for an image)
 	- server side (esp32):
-		- error (used to let the client know that the operation was not successful or 				cannot start image transfer)
+		- error (used to let the client know that the operation was not successful or cannot start image transfer)
+		- busy (used to let the client know that the image is being displayed)
 		- ok (wrote byte successfully to file or can initiate image transfer
 - Image:
 	- reserved for chunks of image
@@ -14,42 +15,50 @@ New characteristics:
 
 We will assume that the server only stores one image at a time (for simplicities sake)
 
-BoardState Enum (thread safe):
+TransferState Enum (thread safe):
 - READY: ready to receive image data
-- WRITING: image data is being sent, do writes
-- DISPLAYING: all image data has been sent, stop writing to file and start e-paper display
+- CLIENT_SENDING: client is currently sending image data
+- DISPLAYING: all data has been saved to file, and board is now starting to display the image.
 
 File* image:
 - not thread safe, will only be modified by the image characteristic callback
-
 
 Asynchronous flow chart (per characteristic thread)
 
 Control:
 - client sends start byte
-- Server receives start byte
+- server receives start byte
 	- READY:
-		sets BoardState to WRITING and send ok byte back to client
-	- WRITING:
-		- clears current image file, sets state to READY and then sends error byte to 
-client
+		sets BoardState to WRITING and send ok byte back to client. Open the file pointer.
+	- CLIENT_SENDING:
+		- clears current image file, sets state to READY and then sends error byte to client
 	- DISPLAYING:
-		- sends error byte to client
+		- send busy byte to client
 	- note: client will only send data to image characteristic after receiving ok
 
 - client sends end byte
 - server receives end byte, 
 	- READY:
 		- sends error byte to client
+	- CLIENT_SENDING:
+		- sends ok byte to client and then sets state to CLIENT_DONE
+	- CLIENT_DONE:
+		- sends error byte to client, sets state to DISPLAYING
+	- DISPLAYING:
+		- send error byte to client
+	- note: client will only send data to image characteristic after receiving ok
 
-updates state to WRITING and sends ok byte to client:
-	- client will stop sending data to image characteristic after receiving ok.
 Image:
 - READY, DISPLAYING:
 	- ignore any image data sent
-- WRITING:
-	- write image data to file using pointer.
+- CLIENT_SENDING:
+	- write any data sent, wait for more data to be sent
+- CLIENT_DONE:
+	- write the rest of the data received to file, and then set state to DISPLAYING
 
+
+In loop():
+Wait for TransferState to be DISPLAYING. Once state is DISPLAYING, then start to update the e-paper display. After update is complete, set the TransferState to READY.
 
 
 After all data is transferred, server updates state to DISPLAYING and begins updating the e-paper display. after the display is updated, it sets state to READY.
