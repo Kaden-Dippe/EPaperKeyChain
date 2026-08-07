@@ -9,7 +9,7 @@
 // static allocates memory for the CustomServerCallbacks object at compile time, ensuring it persists for the lifetime of the program.
 Inkplate display; 
 
-ControlCallbacks customServerCallbacks;
+ServerCallbacks customServerCallbacks;
 
 // This is the name that will show up on the phone when scanning for BLE devices.
 constexpr char DEVICE_NAME[] = "Epaper Keychain";
@@ -18,10 +18,13 @@ constexpr char DEVICE_NAME[] = "Epaper Keychain";
 constexpr char SERVICE_UUID[] =
     "a6b10001-7a4d-4c39-9f60-8c835f21e801";
 
-// Represents the characteristic that will be used to send data to the phone. The phone will read this characteristic to get the data.
-// You can create different characterstics for different data; e.g image data, text data.
-constexpr char CHARACTERISTIC_UUID[] =
+// Represents the Control characteristic. More details in CustomCallbacks.h.
+constexpr char CONTROL_CHARACTERISTIC_UUID[] =
     "a6b10002-7a4d-4c39-9f60-8c835f21e801";
+
+// Represents the Image characteristic. More details in CustomCallbacks.h.
+constexpr char IMAGE_CHARACTERISTIC_UUID[] =
+    "c3dcab57-1604-4c90-a351-1a601ef6d806";
 
 [[noreturn]] void haltStartup(const char* message) {
     Serial.println(message);
@@ -72,12 +75,12 @@ void setup() {
     
     pServer->setCallbacks(&customServerCallbacks);
     NimBLEService *pService = pServer->createService(SERVICE_UUID);
-    NimBLECharacteristic *pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID);
-    
+    NimBLECharacteristic *pControlCharacteristic = pService->createCharacteristic(CONTROL_CHARACTERISTIC_UUID);
+    NimBLECharacteristic *pImageCharacteristic = pService->createCharacteristic(IMAGE_CHARACTERISTIC_UUID);
+
     //pServer->start();
     // Note: compiler says service->start() is deprecated, but leaving this in for now.
     pService->start();
-    pCharacteristic->setValue("Hello BLE");
     
     NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
     pAdvertising->addServiceUUID(SERVICE_UUID); // advertise the UUID of our service
@@ -93,6 +96,15 @@ void setup() {
     //Serial.println("This will never print.");
 }
 
+/*
+@breif Displays the image on the e-paper display
+*/
 void loop() {
-  // put your main code here, to run repeatedly:
+    TransferState state = currentState.load();
+
+    if (state == TransferState::DISPLAYING) {
+        Serial.println("Displaying image...");
+        //displayImageFromFile();
+        currentState.store(TransferState::READY);
+    }
 }
