@@ -4,6 +4,10 @@
 .vscode/launch.json
 .vscode/ipch
 
+# Python tooling
+__pycache__/
+*.pyc
+
 # Xcode / iOS app
 .DS_Store
 DerivedData/
