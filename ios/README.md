@@ -57,6 +57,37 @@ Everything after the crop runs off the main thread and reruns whenever the
 palette toggle flips, so the preview is always exactly what the necklace will
 display.
 
+## Testing and tuning the dithering
+
+`tools/verify_pipeline.py` is a reference port of the dithering and packing —
+the same algorithm the app ships, in Python, so you can change a constant and
+see the result in a second instead of a build-and-deploy cycle. Standard
+library only, except `--image`, which wants `pip install pillow`.
+
+```
+python3 tools/verify_pipeline.py                        # regression self-test
+python3 tools/verify_pipeline.py --sweep                # compare chroma weights
+python3 tools/verify_pipeline.py --image photo.jpg      # dither a real photo
+```
+
+The self-test runs synthetic fields (grey ramp, flat grey, saturated red, a
+warm brick tone) through the real algorithm and asserts the properties the
+firmware and the eye depend on: payload is always 5,512 bytes, Classic never
+emits red, pack/unpack round-trips, neutral grey picks up *no* red ink, and
+saturated red still comes out fully red. It exits non-zero when one breaks, so
+it works as a pre-commit check.
+
+`--image` writes `preview.png` (magnified, nearest-neighbour) and optionally
+the raw payload via `--payload out.bin`, which you can diff against the file
+the ESP32 actually saved. Its crop, rotate and downsample mirror the app, but
+scaling goes through Pillow's Lanczos filter rather than Core Graphics, so a
+photo can differ by a pixel here and there; the dithering and packing are
+exact.
+
+To tune: change `CHROMA_WEIGHT` (or the ink values, or the `ATKINSON` matrix)
+at the top of the script, rerun, then copy the number you settled on into the
+Swift file named in the comment beside it. The two are meant to stay in sync.
+
 ## BLE transfer
 
 | Step | Direction | Bytes |
