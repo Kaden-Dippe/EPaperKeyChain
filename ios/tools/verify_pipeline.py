@@ -64,6 +64,13 @@ def ycbcr(rgb):
             0.5 * r - 0.418688 * g - 0.081312 * b + 128)
 
 
+# Squared 3-D distance between two (y, cb, cr) points; the square root is
+# skipped because callers only ever compare results, never use the magnitude.
+# chroma_weight multiplies the two colour terms, stretching the colour axes
+# relative to brightness before the comparison. That weight is near-zero for
+# black and white, which sit within a few units of any grey on both colour
+# axes, so it only meaningfully penalises red - which is what keeps neutral
+# tones from picking up red ink.
 def distance_squared(a, b, chroma_weight):
     dy, dcb, dcr = a[0] - b[0], a[1] - b[1], a[2] - b[2]
     return dy * dy + chroma_weight * (dcb * dcb + dcr * dcr)

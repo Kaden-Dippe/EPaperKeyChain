@@ -100,6 +100,13 @@ struct YCbCr {
         cr =  0.5 * rgb.r - 0.418688 * rgb.g - 0.081312 * rgb.b + 128
     }
 
+    /// Squared 3-D distance between two (y, cb, cr) points; the square root is
+    /// skipped because callers only ever compare results, never use the
+    /// magnitude. `chromaWeight` multiplies the two colour terms, stretching
+    /// the colour axes relative to brightness before the comparison. That
+    /// weight is near-zero for black and white, which sit within a few units of
+    /// any grey on both colour axes, so it only meaningfully penalises red -
+    /// which is what keeps neutral tones from picking up red ink.
     func distanceSquared(to other: YCbCr) -> Float {
         let dy = y - other.y
         let dcb = cb - other.cb
