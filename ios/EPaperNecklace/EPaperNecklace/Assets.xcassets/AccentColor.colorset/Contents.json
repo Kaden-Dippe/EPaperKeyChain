@@ -1,4 +1,5 @@
 {
+  "comment" : "App-wide accent colour. iOS tints standard controls with this - links, pickers, system button tints - anywhere the app's own palette in UI/Theme.swift is not explicitly applied. Named by ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME in the build settings.",
   "colors" : [
     {
       "color" : {

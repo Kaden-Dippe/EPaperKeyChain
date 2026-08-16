@@ -113,6 +113,10 @@ final class AppModel: ObservableObject {
         let palette = paletteMode
         renderTask = Task { [weak self] in
             guard let self else { return }
+            // `defer` rather than a trailing assignment: an early return on
+            // cancellation would otherwise leave the spinner up forever when
+            // no replacement render follows, as after startOver().
+            defer { self.isRendering = false }
             do {
                 let result = try await ImagePipeline.makeArtwork(selection: selection, palette: palette)
                 if Task.isCancelled { return }
@@ -120,7 +124,6 @@ final class AppModel: ObservableObject {
             } catch {
                 if !Task.isCancelled { self.present(error) }
             }
-            self.isRendering = false
         }
     }
 
@@ -155,7 +158,10 @@ final class AppModel: ObservableObject {
 
     private func present(_ error: Error) {
         let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
-        present(title: "Something went sideways", message: message)
+        let title = (error as? NecklaceError)?.alertTitle
+            ?? (error as? ImagingError)?.alertTitle
+            ?? "That didn't work"
+        present(title: title, message: message)
     }
 
     private func present(title: String, message: String) {

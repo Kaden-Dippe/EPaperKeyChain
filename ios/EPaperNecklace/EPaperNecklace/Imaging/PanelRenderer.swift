@@ -15,6 +15,14 @@ enum ImagingError: LocalizedError {
     case contextUnavailable
     case unexpectedPixelCount(expected: Int, actual: Int)
 
+    var alertTitle: String {
+        switch self {
+        case .emptyCrop: return "Nothing to crop"
+        case .contextUnavailable: return "Couldn't process that"
+        case .unexpectedPixelCount: return "Pipeline mismatch"
+        }
+    }
+
     var errorDescription: String? {
         switch self {
         case .emptyCrop:

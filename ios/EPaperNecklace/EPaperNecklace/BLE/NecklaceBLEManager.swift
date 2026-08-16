@@ -70,6 +70,10 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
 
     private var isTransferring = false
 
+    /// The connect attempt in flight, if any, so overlapping callers can join
+    /// it instead of racing to install waiters.
+    private var connectTask: Task<Void, Error>?
+
     override init() {
         super.init()
         // `showPowerAlert: false` keeps us from throwing a system alert at
@@ -81,14 +85,32 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
 
     // MARK: - Connecting
 
+    /// Scans for the necklace and opens a session.
+    ///
+    /// Concurrent callers join the attempt already in flight rather than
+    /// starting a second one. Without that, two overlapping calls would each
+    /// install their own waiter into the same single-slot properties below and
+    /// the first continuation would never be resumed, hanging its caller
+    /// forever - a real hazard while the state is still `.unknown`, when the
+    /// header tap and the upload button can both get through.
     @MainActor
     func connect() async throws {
         guard !state.isReady else { return }
-        guard !state.isBusy else { return }
 
-        try await waitUntilPoweredOn()
-        let discovered = try await scanForNecklace()
-        try await establishSession(with: discovered)
+        if let inFlight = connectTask {
+            try await inFlight.value
+            return
+        }
+
+        let task = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.connectTask = nil }
+            try await self.waitUntilPoweredOn()
+            let discovered = try await self.scanForNecklace()
+            try await self.establishSession(with: discovered)
+        }
+        connectTask = task
+        try await task.value
     }
 
     @MainActor
@@ -114,6 +136,8 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
         case .resetting, .unknown:
             // The manager hasn't reported in yet; give it a moment.
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                // Belt and braces: never strand a waiter that is already here.
+                finishPower(with: .failure(NecklaceError.superseded))
                 powerWaiter = continuation
                 let timeout = DispatchWorkItem { [weak self] in
                     self?.finishPower(with: .failure(NecklaceError.timedOut("waking up Bluetooth")))
@@ -128,6 +152,9 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
 
     @MainActor
     private func scanForNecklace() async throws -> CBPeripheral {
+        // Clearing a stale waiter first: finishScan can reset `state`, so it
+        // has to happen before this attempt marks itself as scanning.
+        finishScan(with: .failure(NecklaceError.superseded))
         state = .scanning
         return try await withCheckedThrowingContinuation { continuation in
             scanWaiter = continuation
@@ -146,6 +173,10 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
     /// actually enabled, so nothing can write START into a deaf connection.
     @MainActor
     private func establishSession(with discovered: CBPeripheral) async throws {
+        // Same ordering point as the scan: finishConnect clears `peripheral`
+        // on failure, so a stale waiter has to go before this one is stored.
+        finishConnect(with: .failure(NecklaceError.superseded))
+
         state = .connecting
         peripheral = discovered
         discovered.delegate = self
@@ -261,6 +292,7 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
         try await withCheckedThrowingContinuation { continuation in
             // The waiter is installed before the write so a fast notification
             // can't arrive before anyone is listening for it.
+            finishStatus(with: .failure(NecklaceError.superseded))
             statusWaiter = continuation
             let timeout = DispatchWorkItem { [weak self] in
                 self?.finishStatus(with: .failure(NecklaceError.timedOut(step)))
@@ -276,6 +308,7 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
                             to image: CBCharacteristic,
                             on peripheral: CBPeripheral) async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            finishChunk(with: .failure(NecklaceError.superseded))
             chunkWaiter = continuation
             let timeout = DispatchWorkItem { [weak self] in
                 self?.finishChunk(with: .failure(NecklaceError.timedOut("sending image data")))

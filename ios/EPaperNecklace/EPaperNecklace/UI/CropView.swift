@@ -24,6 +24,11 @@ struct CropView: View {
     private let minScale: CGFloat = 1
     private let maxScale: CGFloat = 8
 
+    /// False until the GeometryReader has reported a usable size.
+    private var hasMeasuredLayout: Bool {
+        containerSize.width > 1 && containerSize.height > 1
+    }
+
     init(source: CGImage,
          onCancel: @escaping () -> Void,
          onConfirm: @escaping (CropSelection) -> Void) {
@@ -79,8 +84,12 @@ struct CropView: View {
             } label: {
                 Text("Use")
                     .roundedFont(16, weight: .bold)
-                    .foregroundColor(Theme.blush)
+                    .foregroundColor(hasMeasuredLayout ? Theme.blush : Theme.blush.opacity(0.4))
             }
+            // The crop maths reads `containerSize`, which the GeometryReader
+            // only fills in on its first layout pass. Tapping before then
+            // would crop against a 1 x 1 window.
+            .disabled(!hasMeasuredLayout)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)

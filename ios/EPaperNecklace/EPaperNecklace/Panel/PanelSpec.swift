@@ -15,8 +15,12 @@ enum PanelSpec {
     /// 212 * 104 = 22,048 pixels.
     static let pixelCount = width * height
 
-    /// The payload is 2 bits per pixel, so four pixels share a byte.
-    static let pixelsPerByte = 4
+    /// Two bits per pixel: enough for the panel's three inks plus one unused
+    /// code. See `InkColor` for which value each ink packs to.
+    static let bitsPerPixel = 2
+
+    /// Eight bits to a byte at two bits each, so four pixels share a byte.
+    static let pixelsPerByte = 8 / bitsPerPixel
 
     /// 22,048 / 4 = 5,512 bytes. The firmware expects exactly this many.
     static let payloadByteCount = pixelCount / pixelsPerByte
@@ -29,5 +33,5 @@ enum PanelSpec {
     static let portraitAspectRatio = Double(height) / Double(width)
 
     /// Roughly how long the panel takes to fully refresh once it has the file.
-    static let refreshDuration: TimeInterval = 15
+    static let refreshDuration: TimeInterval = 30
 }

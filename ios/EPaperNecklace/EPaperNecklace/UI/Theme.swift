@@ -2,6 +2,11 @@ import SwiftUI
 
 /// Soft, rounded, pastel. The necklace is jewellery, so the app should feel
 /// like a toy rather than a firmware tool.
+///
+/// These are the palette used by the app's own views. Separately,
+/// `Assets.xcassets/AccentColor.colorset` sets the app-wide accent colour that
+/// UIKit and SwiftUI apply to standard controls - links, pickers, the tint on
+/// system buttons - anywhere this palette isn't explicitly applied.
 enum Theme {
 
     static let blush = Color(red: 0.99, green: 0.76, blue: 0.83)

@@ -57,7 +57,16 @@ ERROR_DIVISOR = 8
 # --- the algorithm ----------------------------------------------------------
 
 def ycbcr(rgb):
-    """BT.601 full range. Neutral colours land at cb = cr = 128."""
+    """Convert an (r, g, b) triple to a (y, cb, cr) triple, BT.601 full range.
+
+        y   luma          overall brightness, a weighted average of r, g and b
+        cb  chroma blue   blue minus y, i.e. how far blue sits from brightness
+        cr  chroma red    red minus y, i.e. how far red sits from brightness
+
+    Both chroma values are rescaled to fit plus or minus 128 and offset so that
+    neutral sits at 128, which means any grey - black, mid grey, white - lands
+    at cb = cr = 128 and is separated from the others by luma alone.
+    """
     r, g, b = rgb
     return (0.299 * r + 0.587 * g + 0.114 * b,
             -0.168736 * r - 0.331264 * g + 0.5 * b + 128,
