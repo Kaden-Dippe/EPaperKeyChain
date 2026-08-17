@@ -1,5 +1,7 @@
 # Tiny Gallery — iOS companion app
 
+[![iOS build](https://github.com/Kaden-Dippe/EPaperKeyChain/actions/workflows/ios-build.yml/badge.svg?branch=claude/epaper-necklace-ios-app-g2f3dq)](https://github.com/Kaden-Dippe/EPaperKeyChain/actions/workflows/ios-build.yml)
+
 Native SwiftUI app for the ESP32 e-paper necklace in this repository. It picks
 or snaps a photo, crops it to the panel's exact aspect ratio, Atkinson-dithers
 it to the panel's ink colours, packs it into the 5,512 byte payload the
