@@ -49,11 +49,15 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee /tmp/build.log
 
-      - name: Error summary
-        if: failure()
+      # Runs on success too: a green build with new warnings is worth seeing
+      # without downloading the full log.
+      - name: Diagnostics summary
+        if: always()
         run: |
-          echo "--- errors ---"
-          grep -E '(error|warning):' /tmp/build.log | sort -u | head -60 || true
+          echo "--- errors and warnings ---"
+          grep -E '(error|warning):' /tmp/build.log \
+            | grep -v 'AppIntents.framework' \
+            | sort -u | head -60 || echo "(none)"
 
       - name: Upload build log
         if: always()
