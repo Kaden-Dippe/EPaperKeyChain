@@ -65,6 +65,12 @@ public:
                         currentState.store(TransferState::CLIENT_TRANSFERRING);
                         // open image pointer.
                         imageFile = LittleFS.open(FILE_PATH, "w");
+                        if (!imageFile) {
+                            Serial.println("Failed to create image file");
+                            pCharacteristic->setValue(&ERROR_BYTE, 1);
+                            pCharacteristic->notify();
+                            return;
+                        }
 
                         pCharacteristic->setValue(&OK_BYTE, 1);
                         pCharacteristic->notify();

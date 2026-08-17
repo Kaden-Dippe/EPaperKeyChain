@@ -26,6 +26,15 @@ constexpr char CONTROL_CHARACTERISTIC_UUID[] =
 constexpr char IMAGE_CHARACTERISTIC_UUID[] =
     "c3dcab57-1604-4c90-a351-1a601ef6d806";
 
+// the dimensions of the e-paper display.
+constexpr size_t WIDTH = 212;
+constexpr size_t HEIGHT = 104;
+
+// 4 pixels per byte
+// each pixel is 2 bits: needs to represent 3 values - black, white, red.
+constexpr size_t ROW_BYTES = WIDTH / 4;
+
+
 [[noreturn]] void haltStartup(const char* message) {
     Serial.println(message);
     Serial.flush();
@@ -107,4 +116,17 @@ void loop() {
         //displayImageFromFile();
         currentState.store(TransferState::READY);
     }
+}
+
+bool displayImageFromFile() {
+    // load the image from the file
+    imageFile = LittleFS.open(FILE_PATH, "r");
+    if (imageFile == nullptr)
+
+    // clear the display
+
+    // read each byte from the file, and fill the frame buffer with the correct value
+
+    // display the image
+
 }
