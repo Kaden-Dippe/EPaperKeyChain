@@ -33,12 +33,16 @@ public:
 };
 
 // Client byte code definitions
-uint8_t START_BYTE = 0xAA;
-uint8_t END_BYTE = 0xBB;
+constexpr uint8_t START_BYTE = 0xAA;
+constexpr uint8_t END_BYTE = 0xBB;
 
-// Server byte code definitions
-uint8_t OK_BYTE = 0xCC;
-uint8_t ERROR_BYTE = 0xDD;
+// Server byte code definitions.
+// BUSY is distinct from ERROR so the client can tell "wait, the panel is still
+// refreshing" apart from "that request was wrong", and word its message to the
+// user accordingly.
+constexpr uint8_t OK_BYTE = 0x01;
+constexpr uint8_t ERROR_BYTE = 0x02;
+constexpr uint8_t BUSY_BYTE = 0x03;
 
 /*
 * @brief Handles starting and stopping the image transfer process.
@@ -65,6 +69,16 @@ public:
                         currentState.store(TransferState::CLIENT_TRANSFERRING);
                         // open image pointer.
                         imageFile = LittleFS.open(FILE_PATH, "w");
+                        if (!imageFile) {
+                            Serial.println("Failed to create image file");
+                            // Back to READY, otherwise the state stays at
+                            // CLIENT_TRANSFERRING and the next START is
+                            // rejected as a duplicate transfer.
+                            currentState.store(TransferState::READY);
+                            pCharacteristic->setValue(&ERROR_BYTE, 1);
+                            pCharacteristic->notify();
+                            return;
+                        }
 
                         pCharacteristic->setValue(&OK_BYTE, 1);
                         pCharacteristic->notify();
@@ -81,7 +95,9 @@ public:
                         break;
                     case TransferState::DISPLAYING:
                         Serial.println("Start byte received, but currently displaying an image. Ignoring.");
-                        pCharacteristic->setValue(&ERROR_BYTE, 1);
+                        // Busy rather than error: nothing is wrong, the client
+                        // just needs to wait for the refresh to finish.
+                        pCharacteristic->setValue(&BUSY_BYTE, 1);
                         pCharacteristic->notify();
                         break;
                     default:

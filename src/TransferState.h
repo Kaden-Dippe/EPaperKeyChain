@@ -16,7 +16,9 @@ enum class TransferState {
 extern std::atomic<TransferState> currentState;
 
 // The image to be displayed on the e-paper display.
-// Only the image characteristic writes to this file, so no need for thread safety.
+// Written by the image characteristic callback while CLIENT_TRANSFERRING, and
+// read back by loop() while DISPLAYING. The state machine keeps those two apart,
+// so no locking is needed. Defined in main.cpp.
 extern File imageFile;
 
 extern constexpr char FILE_PATH[] = "image.bin";
