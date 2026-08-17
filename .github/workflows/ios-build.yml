@@ -1,0 +1,77 @@
+name: iOS build
+
+# Compiles the companion app for the Simulator, which needs no signing and no
+# Apple account, so every push gets checked even when nobody has a Mac to hand.
+# It does not run the app: the Simulator has no Bluetooth, so the BLE half can
+# only be exercised on a real device.
+
+on:
+  push:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  pull_request:
+    paths:
+      - 'ios/**'
+      - '.github/workflows/ios-build.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile for Simulator
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The project uses Xcode 16 synchronized folder groups, so a runner on an
+      # older Xcode will fail to parse it. Printing this makes that obvious.
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          xcodebuild -list -project ios/EPaperNecklace/EPaperNecklace.xcodeproj
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project ios/EPaperNecklace/EPaperNecklace.xcodeproj \
+            -scheme EPaperNecklace \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee /tmp/build.log
+
+      - name: Error summary
+        if: failure()
+        run: |
+          echo "--- errors ---"
+          grep -E '(error|warning):' /tmp/build.log | sort -u | head -60 || true
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: /tmp/build.log
+          retention-days: 7
+
+  pipeline:
+    name: Dithering self-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Guards the invariants the firmware depends on: 5,512 byte payload,
+      # Classic never emits red, pack/unpack round trips, neutral greys stay
+      # neutral. Standard library only, so no install step.
+      - name: Run reference pipeline checks
+        run: python3 ios/tools/verify_pipeline.py
