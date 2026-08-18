@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copy this to EPaperNecklace/EPaperNecklace/Telemetry.plist and put your own
+  topic in it. That path is gitignored, because this repository is public and
+  an ntfy topic name is the only thing protecting the logs.
+
+  With no Telemetry.plist present, remote logging is off and nothing leaves the
+  device. The unified log still records everything either way.
+
+  Pick something long and random: anyone who knows the topic can read your logs
+  and post to them.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>NtfyTopic</key>
+    <string>epaper-necklace-CHANGE-ME-a7f3c9d2e1b8</string>
+
+    <!-- Optional. Defaults to https://ntfy.sh; set this if you self-host. -->
+    <key>NtfyServer</key>
+    <string>https://ntfy.sh</string>
+</dict>
+</plist>

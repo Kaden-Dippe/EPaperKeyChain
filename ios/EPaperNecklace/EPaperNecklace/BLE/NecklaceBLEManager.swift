@@ -221,6 +221,15 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
         let chunkSize = negotiatedChunkSize(for: peripheral)
         let totalPackets = (payload.count + chunkSize - 1) / chunkSize
 
+        // The negotiated MTU is the one number neither the code nor the docs
+        // can predict, and it decides whether this is 11 packets or 276.
+        Telemetry.shared.log("""
+            transfer: \(payload.count) bytes, chunk \(chunkSize) \
+            (withoutResponse \(peripheral.maximumWriteValueLength(for: .withoutResponse)), \
+            withResponse \(peripheral.maximumWriteValueLength(for: .withResponse))), \
+            \(totalPackets) packets
+            """)
+
         isTransferring = true
         progress = TransferProgress(bytesSent: 0,
                                     totalBytes: payload.count,
@@ -236,6 +245,7 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
                                                 to: control,
                                                 on: peripheral,
                                                 step: "starting the transfer")
+        Telemetry.shared.log("START -> \(startStatus)")
         try check(status: startStatus)
 
         // 2. Stream the payload.
@@ -252,6 +262,12 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
                                         totalBytes: payload.count,
                                         packetsSent: packets,
                                         totalPackets: totalPackets)
+
+            // Sampled: every packet would be up to 276 lines, and the worst
+            // case is exactly when something has gone wrong.
+            if packets == 1 || packets == totalPackets || packets % 10 == 0 {
+                Telemetry.shared.log("chunk \(packets)/\(totalPackets), \(offset) bytes sent")
+            }
         }
 
         // 3. END, and wait for the firmware to close the file and start
@@ -260,6 +276,7 @@ final class NecklaceBLEManager: NSObject, ObservableObject {
                                               to: control,
                                               on: peripheral,
                                               step: "finishing the transfer")
+        Telemetry.shared.log("END -> \(endStatus)")
         try check(status: endStatus)
     }
 
@@ -433,8 +450,10 @@ extension NecklaceBLEManager: CBCentralManagerDelegate {
         let advertised = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name
         if let advertised,
            advertised.compare(NecklaceProtocol.deviceName, options: .caseInsensitive) != .orderedSame {
+            Telemetry.shared.log("ignored '\(advertised)' (name mismatch)")
             return
         }
+        Telemetry.shared.log("found '\(advertised ?? "unnamed")' rssi \(RSSI)")
         finishScan(with: .success(peripheral))
     }
 
@@ -452,6 +471,10 @@ extension NecklaceBLEManager: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager,
                         didDisconnectPeripheral peripheral: CBPeripheral,
                         error: Error?) {
+        Telemetry.shared.log("""
+            disconnected\(isTransferring ? " mid-transfer" : ""): \
+            \(error?.localizedDescription ?? "no error reported")
+            """)
         let reason: NecklaceError = isTransferring ? .disconnectedDuringTransfer : .notConnected
         teardown(reason: reason)
         state = central.state == .poweredOn ? .disconnected : mappedState(for: central.state)
@@ -505,6 +528,7 @@ extension NecklaceBLEManager: CBPeripheralDelegate {
             return
         }
         if characteristic.isNotifying {
+            Telemetry.shared.log("notifications enabled, session ready")
             finishConnect(with: .success(()))
         }
     }
@@ -517,11 +541,19 @@ extension NecklaceBLEManager: CBPeripheralDelegate {
             finishStatus(with: .failure(NecklaceError.writeFailed(error.localizedDescription)))
             return
         }
-        guard let byte = characteristic.value?.first,
-              let status = NecklaceProtocol.Status(byte: byte) else {
+        guard let byte = characteristic.value?.first else {
+            Telemetry.shared.log("notify: empty value")
             finishStatus(with: .failure(NecklaceError.unreadableStatus))
             return
         }
+        guard let status = NecklaceProtocol.Status(byte: byte) else {
+            // The exact byte matters here: an unrecognised one almost certainly
+            // means the board is running firmware older than 7452adb.
+            Telemetry.shared.log("notify: unrecognised status \(Telemetry.hex(byte))")
+            finishStatus(with: .failure(NecklaceError.unreadableStatus))
+            return
+        }
+        Telemetry.shared.log("notify: \(Telemetry.hex(byte)) -> \(status)")
         finishStatus(with: .success(status))
     }
 

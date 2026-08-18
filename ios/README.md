@@ -116,6 +116,37 @@ Swift file named in the comment beside it. The two are meant to stay in sync.
 - A disconnect mid-transfer fails everything in flight with a clear message and
   resets the app to idle.
 
+## Debug logging over ntfy
+
+A TestFlight build has no debugger attached, so `print()` is invisible.
+`Support/Telemetry.swift` writes every line to the unified log and, if a topic
+is configured, batches them and posts one message per operation to
+[ntfy.sh](https://ntfy.sh).
+
+Set it up:
+
+1. Pick a long random topic name. It is the *only* access control ntfy's public
+   server offers — anyone who knows it can read your logs and post to them.
+2. `cp ios/Telemetry.example.plist ios/EPaperNecklace/EPaperNecklace/Telemetry.plist`
+   and put your topic in it. That path is gitignored; this repository is public.
+3. Read the logs from the ntfy iOS app (subscribe to the topic), from
+   `https://ntfy.sh/<topic>` in any browser, or from a terminal:
+
+   ```
+   curl -s https://ntfy.sh/<topic>/json                    # live stream
+   curl -s "https://ntfy.sh/<topic>/json?poll=1&since=1h"  # recent history
+   ```
+
+With no `Telemetry.plist` present, remote posting is off and nothing leaves the
+device — which is how CI and anyone else's checkout will build it.
+
+A clean transfer is about 16 lines in one message: the negotiated MTU and
+resulting packet count, the raw status byte after START and END, every tenth
+chunk, and the outcome. Chunk logging is sampled because at an unnegotiated
+23-byte MTU the transfer is 276 packets. ntfy.sh only caches messages for a
+limited window, so treat it as a live channel rather than an archive; the
+unified log keeps the same lines on the device regardless.
+
 ## Firmware notes
 
 The app is written against the protocol in `Image_Transfer_Protocol.txt` and the
