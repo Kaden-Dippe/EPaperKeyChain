@@ -169,6 +169,29 @@ log is uploaded as an artifact on both success and failure.
 Once a build is processed (a few minutes), it appears in TestFlight for
 internal testers with no review needed.
 
+### Why not Fastlane
+
+[Fastlane](https://fastlane.tools) is the standard tool for this, and the same
+pipeline is about ten lines of Ruby with it — `build_app` then
+`upload_to_testflight`, using the same App Store Connect API key secrets this
+workflow already needs. It is deliberately not used here for two reasons: the
+project otherwise has no dependencies at all, and when a raw `xcodebuild`
+pipeline breaks the error comes straight from `xcodebuild` rather than through a
+Ruby wrapper — which matters while none of this has been run against a real
+Apple account.
+
+That is a preference, not a verdict. If the workflow above proves painful,
+porting it to Fastlane is a sensible fallback: keep the certificate as a base64
+secret and skip `match`, which otherwise wants a second private repository to
+hold your signing material.
+
+One thing to know if you go looking: the ready-made marketplace actions for this
+are mostly wrappers that run `fastlane` against a `Fastfile` **your** repo is
+expected to provide, so they are not drop-in replacements. The one for
+[publishing to the App Store](https://github.com/marketplace/actions/publish-ios-app-to-app-store)
+also requires a `shared_module` input and assumes a Kotlin Multiplatform layout,
+which does not apply here.
+
 ## Debug logging over ntfy
 
 A TestFlight build has no debugger attached, so `print()` is invisible.
