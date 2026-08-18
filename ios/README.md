@@ -123,13 +123,23 @@ A TestFlight build has no debugger attached, so `print()` is invisible.
 is configured, batches them and posts one message per operation to
 [ntfy.sh](https://ntfy.sh).
 
-Set it up:
+Pick a long random topic name first. It is the *only* access control ntfy's
+public server offers — anyone who knows it can read your logs and post to them.
 
-1. Pick a long random topic name. It is the *only* access control ntfy's public
-   server offers — anyone who knows it can read your logs and post to them.
-2. `cp ios/Telemetry.example.plist ios/EPaperNecklace/EPaperNecklace/Telemetry.plist`
-   and put your topic in it. That path is gitignored; this repository is public.
-3. Read the logs from the ntfy iOS app (subscribe to the topic), from
+**Building in CI** (the usual case, since TestFlight builds come from the
+workflow): add the topic as a repository secret named `NTFY_TOPIC`, under
+Settings → Secrets and variables → Actions. The workflow writes the plist
+before building. Nothing to do locally, and the topic never enters the repo.
+
+**Building locally in Xcode:** copy the example and fill in the same topic —
+
+```
+cp ios/Telemetry.example.plist ios/EPaperNecklace/EPaperNecklace/Telemetry.plist
+```
+
+That path is gitignored; this repository is public.
+
+Either way, read the logs from the ntfy iOS app (subscribe to the topic), from
    `https://ntfy.sh/<topic>` in any browser, or from a terminal:
 
    ```
@@ -137,8 +147,13 @@ Set it up:
    curl -s "https://ntfy.sh/<topic>/json?poll=1&since=1h"  # recent history
    ```
 
-With no `Telemetry.plist` present, remote posting is off and nothing leaves the
-device — which is how CI and anyone else's checkout will build it.
+With no topic configured — no secret in CI, no local plist — remote posting is
+off and nothing leaves the device.
+
+One consequence of the CI route worth knowing: the topic is baked into the app
+bundle, so anyone who gets hold of the build can extract it. For a debug channel
+carrying packet counts and status bytes that is a fair trade, but don't reuse
+the topic for anything you'd mind a stranger reading or posting to.
 
 A clean transfer is about 16 lines in one message: the negotiated MTU and
 resulting packet count, the raw status byte after START and END, every tenth

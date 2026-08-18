@@ -38,6 +38,29 @@ jobs:
           xcodebuild -version
           xcodebuild -list -project ios/EPaperNecklace/EPaperNecklace.xcodeproj
 
+      # Telemetry.plist is gitignored, so a CI checkout has none and remote
+      # logging stays off. Set the NTFY_TOPIC repository secret to have builds
+      # from this workflow report to your topic instead.
+      - name: Write telemetry config
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "NTFY_TOPIC secret not set - remote logging stays off."
+            exit 0
+          fi
+          cat > ios/EPaperNecklace/EPaperNecklace/Telemetry.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>NtfyTopic</key>
+              <string>${NTFY_TOPIC}</string>
+          </dict>
+          </plist>
+          PLIST
+          echo "Telemetry config written."
+
       - name: Build
         run: |
           set -o pipefail
