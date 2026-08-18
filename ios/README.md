@@ -119,15 +119,13 @@ Swift file named in the comment beside it. The two are meant to stay in sync.
 ## Firmware notes
 
 The app is written against the protocol in `Image_Transfer_Protocol.txt` and the
-UUIDs in `src/main.cpp`. Two mismatches with the firmware as it stands today:
+UUIDs in `src/main.cpp`. Both sides now agree: the service and characteristic
+UUIDs match exactly, the control characteristic advertises `NOTIFY`, the image
+characteristic is plain `WRITE` so its acknowledgement paces the transfer, and
+status bytes are `0x01` OK / `0x02` ERROR / `0x03` BUSY in both places.
 
-1. **Status byte values.** `src/CustomCallbacks.h` currently replies `0xCC` for
-   OK and `0xDD` for ERROR, with no distinct BUSY code. `NecklaceProtocol.Status`
-   accepts both those and the `0x01/0x02/0x03` values from the spec, so the app
-   works either way; delete the two legacy cases once the firmware moves over.
-2. **Characteristic setup.** `src/main.cpp` creates both characteristics with
-   `createCharacteristic(UUID)` and never attaches
-   `ControlCharacteristicCallbacks` / `ImageCharacteristicCallbacks`. Without
-   the `NOTIFY` property on the control characteristic (and `WRITE` on both) and
-   those callbacks installed, the firmware won't receive commands or send
-   status bytes, and the app will time out waiting for the reply to START.
+**The app requires firmware at or after `7452adb`.** It used to also accept the
+firmware's original `0xCC`/`0xDD` codes so it would work against an un-reflashed
+board; those cases are gone. A board running older firmware will reply `0xCC`,
+which the app no longer recognises, and the transfer fails with "The necklace
+replied with something unexpected."

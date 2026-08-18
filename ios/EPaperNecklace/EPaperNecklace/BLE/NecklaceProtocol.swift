@@ -36,15 +36,6 @@ enum NecklaceProtocol {
             case 0x01: self = .ok
             case 0x02: self = .error
             case 0x03: self = .busy
-
-            // The firmware currently in `src/CustomCallbacks.h` still uses its
-            // original status codes (0xCC / 0xDD, with no distinct BUSY byte).
-            // Accepting both keeps the app working against boards that haven't
-            // been reflashed yet; drop these two cases once the firmware moves
-            // to 0x01/0x02/0x03.
-            case 0xCC: self = .ok
-            case 0xDD: self = .error
-
             default: return nil
             }
         }
