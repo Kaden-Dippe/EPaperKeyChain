@@ -116,6 +116,59 @@ Swift file named in the comment beside it. The two are meant to stay in sync.
 - A disconnect mid-transfer fails everything in flight with a clear message and
   resets the app to idle.
 
+## Shipping to TestFlight
+
+`.github/workflows/testflight.yml` archives, signs and uploads to App Store
+Connect. It is **manual only** — run it from the Actions tab — because each run
+consumes a build number.
+
+It needs an Apple Developer Program membership, and eight pieces of
+configuration. Everything below is a repository **secret** except
+`IOS_BUNDLE_ID`, which is a repository **variable** (it isn't sensitive).
+
+| Name | What it is | Where it comes from |
+| --- | --- | --- |
+| `IOS_BUNDLE_ID` *(variable)* | e.g. `com.kadendippe.epapernecklace` | You choose it, then register it as an App ID in the developer portal |
+| `APPLE_TEAM_ID` | 10-character team ID | developer.apple.com → Membership |
+| `BUILD_CERTIFICATE_BASE64` | Apple Distribution cert **with private key**, as a base64 `.p12` | See below |
+| `P12_PASSWORD` | password you set when exporting the `.p12` | You choose it |
+| `PROVISIONING_PROFILE_BASE64` | base64 of an App Store provisioning profile | Portal → Profiles → new "App Store Connect" profile for your App ID → download → `base64 -i profile.mobileprovision \| pbcopy` |
+| `KEYCHAIN_PASSWORD` | any random string | You choose it; it only protects a throwaway keychain on the runner |
+| `APPSTORE_API_KEY_ID` | 10-character key ID | App Store Connect → Users and Access → Integrations → App Store Connect API |
+| `APPSTORE_API_ISSUER_ID` | UUID shown above the key list | Same page |
+| `APPSTORE_API_PRIVATE_KEY` | the whole `.p8` file contents, `-----BEGIN…` and all | Downloaded once when you create the key — Apple never shows it again |
+
+### Getting the `.p12`
+
+With a Mac: Xcode → Settings → Accounts → Manage Certificates → create an Apple
+Distribution certificate, then in Keychain Access right-click it → Export as
+`.p12`. Then `base64 -i cert.p12 | pbcopy`.
+
+Without a Mac, using openssl anywhere:
+
+```
+openssl req -new -newkey rsa:2048 -nodes -keyout key.pem -out request.csr
+# upload request.csr at developer.apple.com → Certificates → +  (Apple Distribution)
+# download the resulting distribution.cer, then:
+openssl x509 -in distribution.cer -inform DER -out cert.pem -outform PEM
+openssl pkcs12 -export -inkey key.pem -in cert.pem -out cert.p12
+base64 -i cert.p12
+```
+
+Guard `key.pem` and the `.p8` — both are credentials, and neither belongs in
+this repository.
+
+### First run
+
+Expect it to need a round or two of fixes. Signing pipelines rarely work first
+time, and none of this has been exercised: I wrote it without an Apple account
+to test against. The likeliest snags are the certificate type not matching
+`CODE_SIGN_IDENTITY`, or the App ID not existing yet in the portal. The archive
+log is uploaded as an artifact on both success and failure.
+
+Once a build is processed (a few minutes), it appears in TestFlight for
+internal testers with no review needed.
+
 ## Debug logging over ntfy
 
 A TestFlight build has no debugger attached, so `print()` is invisible.

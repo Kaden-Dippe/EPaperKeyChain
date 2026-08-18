@@ -1,0 +1,245 @@
+name: TestFlight
+
+# Archives, signs and uploads the app to App Store Connect, from where it
+# reaches your phone through TestFlight. Manual only: every run burns a build
+# number and a processing slot, so it should be a decision rather than a
+# side effect of pushing.
+#
+# Requires the secrets listed in ios/README.md under "Shipping to TestFlight".
+# Without them this workflow cannot work, and it fails early saying so.
+
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "What to tell testers (optional)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: testflight
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Archive and upload
+    runs-on: macos-latest
+
+    env:
+      PROJECT: ios/EPaperNecklace/EPaperNecklace.xcodeproj
+      SCHEME: EPaperNecklace
+      ARCHIVE: ${{ github.workspace }}/build/EPaperNecklace.xcarchive
+      EXPORT_DIR: ${{ github.workspace }}/build/export
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check required secrets
+        env:
+          CERT: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          PROFILE: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+          KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE: ${{ vars.IOS_BUNDLE_ID }}
+        run: |
+          # `if` rather than `[ ... ] && ...`: steps run under `bash -e`, where a
+          # trailing AND-list that evaluates false ends the step - which would
+          # mean failing exactly when every secret is present.
+          missing=""
+          if [ -z "$CERT" ];    then missing="$missing BUILD_CERTIFICATE_BASE64"; fi
+          if [ -z "$PROFILE" ]; then missing="$missing PROVISIONING_PROFILE_BASE64"; fi
+          if [ -z "$KEY" ];     then missing="$missing APPSTORE_API_PRIVATE_KEY"; fi
+          if [ -z "$TEAM" ];    then missing="$missing APPLE_TEAM_ID"; fi
+          if [ -z "$BUNDLE" ];  then missing="$missing IOS_BUNDLE_ID(variable)"; fi
+          if [ -n "$missing" ]; then
+            echo "Missing:$missing"
+            echo "See ios/README.md, 'Shipping to TestFlight'."
+            exit 1
+          fi
+          echo "All required secrets present."
+
+      # The signing identity has to live in a keychain xcodebuild can see. A
+      # throwaway one per run keeps it off the runner's default keychain and
+      # means nothing needs cleaning up if the job dies.
+      - name: Import signing certificate
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          CERT_PATH=$RUNNER_TEMP/certificate.p12
+          KEYCHAIN=$RUNNER_TEMP/signing.keychain-db
+
+          echo -n "$BUILD_CERTIFICATE_BASE64" | base64 --decode -o "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          security import "$CERT_PATH" -P "$P12_PASSWORD" -A \
+            -t cert -f pkcs12 -k "$KEYCHAIN"
+
+          # Lets codesign use the key without an interactive prompt.
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+
+          # Keep the login keychain in the search list so system roots resolve.
+          security list-keychain -d user -s "$KEYCHAIN" login.keychain-db
+
+          echo "Identities available:"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      - name: Install provisioning profile
+        env:
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          PP_PATH=$RUNNER_TEMP/profile.mobileprovision
+          echo -n "$PROVISIONING_PROFILE_BASE64" | base64 --decode -o "$PP_PATH"
+
+          # The profile's own name and UUID are inside it, so neither has to be
+          # supplied as a secret. It is CMS-signed, hence the decode.
+          security cms -D -i "$PP_PATH" > "$RUNNER_TEMP/profile.plist"
+          NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$RUNNER_TEMP/profile.plist")
+          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$RUNNER_TEMP/profile.plist")
+          echo "Profile: $NAME ($UUID)"
+          echo "PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
+
+          # Xcode has looked in both of these over the years; install to each.
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" \
+                     "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$PP_PATH" "$dir/$UUID.mobileprovision"
+          done
+
+      - name: Write App Store Connect API key
+        env:
+          APPSTORE_API_PRIVATE_KEY: ${{ secrets.APPSTORE_API_PRIVATE_KEY }}
+          APPSTORE_API_KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          KEY_PATH="$RUNNER_TEMP/private_keys/AuthKey_${APPSTORE_API_KEY_ID}.p8"
+          echo -n "$APPSTORE_API_PRIVATE_KEY" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+          echo "API_KEY_PATH=$KEY_PATH" >> "$GITHUB_ENV"
+
+      # Same injection as the build workflow: without the secret, the app ships
+      # with remote logging off.
+      - name: Write telemetry config
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: |
+          if [ -z "$NTFY_TOPIC" ]; then
+            echo "NTFY_TOPIC secret not set - remote logging stays off."
+            exit 0
+          fi
+          cat > ios/EPaperNecklace/EPaperNecklace/Telemetry.plist <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>NtfyTopic</key>
+              <string>${NTFY_TOPIC}</string>
+          </dict>
+          </plist>
+          PLIST
+          echo "Telemetry config written."
+
+      # App Store Connect rejects a build number it has already seen for this
+      # marketing version. The run number only ever increases, so it is a
+      # reasonable source for one.
+      - name: Archive
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+        run: |
+          set -euo pipefail
+          # Full log to a file so a failure can be read without wading through
+          # thousands of lines in the job output, and so the exit status of
+          # xcodebuild itself is what decides the step.
+          if ! xcodebuild archive \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            CURRENT_PROJECT_VERSION=${{ github.run_number }} \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_NAME" \
+            > "$RUNNER_TEMP/archive.log" 2>&1; then
+              echo "--- errors ---"
+              grep -E 'error:|Code Sign|Provisioning' "$RUNNER_TEMP/archive.log" \
+                | sort -u | head -40 || true
+              exit 1
+          fi
+          echo "Archived build ${{ github.run_number }}."
+
+      # destination=upload makes exportArchive do the upload itself, so there is
+      # no separate altool step and no Fastlane dependency.
+      - name: Export and upload
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUNDLE_ID: ${{ vars.IOS_BUNDLE_ID }}
+          KEY_ID: ${{ secrets.APPSTORE_API_KEY_ID }}
+          ISSUER_ID: ${{ secrets.APPSTORE_API_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>app-store-connect</string>
+              <key>destination</key>
+              <string>upload</string>
+              <key>teamID</key>
+              <string>${TEAM_ID}</string>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>provisioningProfiles</key>
+              <dict>
+                  <key>${BUNDLE_ID}</key>
+                  <string>${PROFILE_NAME}</string>
+              </dict>
+              <key>uploadSymbols</key>
+              <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE" \
+            -exportPath "$EXPORT_DIR" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -authenticationKeyPath "$API_KEY_PATH" \
+            -authenticationKeyID "$KEY_ID" \
+            -authenticationKeyIssuerID "$ISSUER_ID"
+
+          echo "Uploaded build ${{ github.run_number }}."
+          echo "Notes: ${{ inputs.notes }}"
+
+      - name: Upload archive log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: archive-log
+          path: ${{ runner.temp }}/archive.log
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Runs even on failure so a cancelled job leaves no signing identity
+      # behind on the runner.
+      - name: Clean up keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" || true
+          rm -f "$RUNNER_TEMP/certificate.p12" "$API_KEY_PATH" || true
