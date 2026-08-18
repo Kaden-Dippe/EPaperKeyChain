@@ -116,6 +116,191 @@ Swift file named in the comment beside it. The two are meant to stay in sync.
 - A disconnect mid-transfer fails everything in flight with a clear message and
   resets the app to idle.
 
+## Shipping to TestFlight
+
+`.github/workflows/testflight.yml` archives, signs and uploads to App Store
+Connect. It is **manual only** — run it from the Actions tab — because each run
+consumes a build number.
+
+It needs an Apple Developer Program membership, and eight pieces of
+configuration. Everything below is a repository **secret** except
+`IOS_BUNDLE_ID`, which is a repository **variable** (it isn't sensitive).
+
+| Name | What it is | Where it comes from |
+| --- | --- | --- |
+| `IOS_BUNDLE_ID` *(variable)* | e.g. `com.kadendippe.epapernecklace` | You choose it, then register it as an App ID in the developer portal |
+| `APPLE_TEAM_ID` | 10-character team ID | developer.apple.com → Membership |
+| `BUILD_CERTIFICATE_BASE64` | Apple Distribution cert **with private key**, as a base64 `.p12` | See below |
+| `P12_PASSWORD` | password you set when exporting the `.p12` | You choose it |
+| `PROVISIONING_PROFILE_BASE64` | base64 of an App Store provisioning profile | Portal → Profiles → new "App Store Connect" profile for your App ID → download → `base64 -i profile.mobileprovision \| pbcopy` |
+| `KEYCHAIN_PASSWORD` | any random string | You choose it; it only protects a throwaway keychain on the runner |
+| `APPSTORE_API_KEY_ID` | 10-character key ID | App Store Connect → Users and Access → Integrations → App Store Connect API |
+| `APPSTORE_API_ISSUER_ID` | UUID shown above the key list | Same page |
+| `APPSTORE_API_PRIVATE_KEY` | the whole `.p8` file contents, `-----BEGIN…` and all | Downloaded once when you create the key — Apple never shows it again |
+
+### Getting the `.p12`
+
+With a Mac: Xcode → Settings → Accounts → Manage Certificates → create an Apple
+Distribution certificate, then in Keychain Access right-click it → Export as
+`.p12`. Then `base64 -i cert.p12 | pbcopy`.
+
+Without a Mac, using openssl anywhere:
+
+```
+openssl req -new -newkey rsa:2048 -nodes -keyout key.pem -out request.csr
+# upload request.csr at developer.apple.com → Certificates → +  (Apple Distribution)
+# download the resulting distribution.cer, then:
+openssl x509 -in distribution.cer -inform DER -out cert.pem -outform PEM
+openssl pkcs12 -export -inkey key.pem -in cert.pem -out cert.p12
+base64 -i cert.p12
+```
+
+Guard `key.pem` and the `.p8` — both are credentials, and neither belongs in
+this repository.
+
+### First run
+
+Expect it to need a round or two of fixes. Signing pipelines rarely work first
+time, and none of this has been exercised: I wrote it without an Apple account
+to test against. The likeliest snags are the certificate type not matching
+`CODE_SIGN_IDENTITY`, or the App ID not existing yet in the portal. The archive
+log is uploaded as an artifact on both success and failure.
+
+Once a build is processed (a few minutes), it appears in TestFlight for
+internal testers with no review needed.
+
+### Why not Fastlane
+
+[Fastlane](https://fastlane.tools) is the standard tool for this, and the same
+pipeline is about ten lines of Ruby with it — `build_app` then
+`upload_to_testflight`, using the same App Store Connect API key secrets this
+workflow already needs. It is deliberately not used here for two reasons: the
+project otherwise has no dependencies at all, and when a raw `xcodebuild`
+pipeline breaks the error comes straight from `xcodebuild` rather than through a
+Ruby wrapper — which matters while none of this has been run against a real
+Apple account.
+
+That is a preference, not a verdict. If the workflow above proves painful,
+porting it to Fastlane is a sensible fallback: keep the certificate as a base64
+secret and skip `match`, which otherwise wants a second private repository to
+hold your signing material.
+
+One thing to know if you go looking: the ready-made marketplace actions for this
+are mostly wrappers that run `fastlane` against a `Fastfile` **your** repo is
+expected to provide, so they are not drop-in replacements. The one for
+[publishing to the App Store](https://github.com/marketplace/actions/publish-ios-app-to-app-store)
+also requires a `shared_module` input and assumes a Kotlin Multiplatform layout,
+which does not apply here.
+
+## Debug logging over ntfy
+
+A TestFlight build has no debugger attached, so `print()` is invisible.
+`Support/Telemetry.swift` writes every line to the unified log and, if a topic
+is configured, batches them and posts one message per operation to
+[ntfy.sh](https://ntfy.sh).
+
+Pick a long random topic name first. It is the *only* access control ntfy's
+public server offers — anyone who knows it can read your logs and post to them.
+
+**Building in CI** (the usual case, since TestFlight builds come from the
+workflow): add the topic as a repository secret named `NTFY_TOPIC`, under
+Settings → Secrets and variables → Actions. The workflow writes the plist
+before building. Nothing to do locally, and the topic never enters the repo.
+
+**Building locally in Xcode:** copy the example and fill in the same topic —
+
+```
+cp ios/Telemetry.example.plist ios/EPaperNecklace/EPaperNecklace/Telemetry.plist
+```
+
+That path is gitignored; this repository is public.
+
+Either way, read the logs from the ntfy iOS app (subscribe to the topic), from
+   `https://ntfy.sh/<topic>` in any browser, or from a terminal:
+
+   ```
+   curl -s https://ntfy.sh/<topic>/json                    # live stream
+   curl -s "https://ntfy.sh/<topic>/json?poll=1&since=1h"  # recent history
+   ```
+
+With no topic configured — no secret in CI, no local plist — remote posting is
+off and nothing leaves the device.
+
+One consequence of the CI route worth knowing: the topic is baked into the app
+bundle, so anyone who gets hold of the build can extract it. For a debug channel
+carrying packet counts and status bytes that is a fair trade, but don't reuse
+the topic for anything you'd mind a stranger reading or posting to.
+
+A clean transfer is about 16 lines in one message: the negotiated MTU and
+resulting packet count, the raw status byte after START and END, every tenth
+chunk, and the outcome. Chunk logging is sampled because at an unnegotiated
+23-byte MTU the transfer is 276 packets. ntfy.sh only caches messages for a
+limited window, so treat it as a live channel rather than an archive; the
+unified log keeps the same lines on the device regardless.
+
+## Pitfalls
+
+Two known ways this can behave oddly, both of them cases where the logs either
+mislead or say nothing at all. Worth reading before concluding something is
+broken.
+
+### MTU negotiation is unverified
+
+The chunk size is whatever `maximumWriteValueLength(for: .withoutResponse)`
+reports, which CoreBluetooth defines as ATT_MTU − 3. What that number actually
+is depends on a negotiation between iOS and NimBLE that neither of us has
+watched happen, and it changes the transfer by a factor of twenty-five:
+
+| ATT_MTU | chunk | packets for 5,512 bytes |
+| --- | --- | --- |
+| 23 (never negotiated up) | 20 | 276 |
+| 185 (common on iOS) | 182 | 31 |
+| 517 (NimBLE maximum) | 514 | 11 |
+
+**What you'd see.** The first telemetry line of every transfer reports it:
+
+```
+transfer: 5512 bytes, chunk 182 (withoutResponse 182, withResponse 512), 31 packets
+```
+
+If `chunk` is 20, the MTU never grew. The transfer still works, but it takes far
+longer, the progress ring crawls, and you are 276 round trips away from an
+answer instead of 31 — which also makes a chunk timeout much more likely to bite
+somewhere in the middle.
+
+**What to do.** That's a firmware-side fix: NimBLE has its own maximum, set with
+`NimBLEDevice::setMTU()`, and the peripheral has to accept a larger exchange. It
+is not something the app can force.
+
+Note also that `withResponse` typically reports 512 regardless, because iOS will
+happily split a larger write into a queued long write. Taking the smaller of the
+two is what keeps chunks at true ATT_MTU − 3; if that clamp were removed, iOS
+could send a long write that the firmware isn't expecting.
+
+### A crash or force-quit loses the remote log
+
+Telemetry batches lines in memory and posts them once, at the end of the
+operation. If the app is killed between `begin` and `flush` — a crash, or you
+swiping it away mid-transfer — that batch dies with it and **nothing reaches
+ntfy**.
+
+**Why this misleads.** Silence is ambiguous. No message can mean the transfer
+never started, *or* that it got a long way in and then the app died. A genuine
+failure always produces an `upload failed` message, because every error path
+unwinds through the flush and the timeouts guarantee an error eventually
+arrives. So:
+
+| what you see | what it means |
+| --- | --- |
+| `upload ok` | it worked |
+| `upload failed` + error line | it failed, and the batch tells you where |
+| nothing at all | the app died, or telemetry isn't configured |
+
+**What to do.** The unified log on the phone still has every line, so nothing is
+truly lost — `OSLogStore` can read it back on-device, or Console.app can from a
+Mac. Before assuming a crash, check that the topic is actually configured: an
+unset `NTFY_TOPIC` produces exactly the same silence.
+
 ## Firmware notes
 
 The app is written against the protocol in `Image_Transfer_Protocol.txt` and the

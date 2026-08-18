@@ -46,10 +46,15 @@ final class AppModel: ObservableObject {
             return
         }
         Task {
+            Telemetry.shared.begin("connect requested")
             do {
                 try await ble.connect()
+                Telemetry.shared.flush("connected")
             } catch {
                 present(error)
+                let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                Telemetry.shared.log("error: \(message)")
+                Telemetry.shared.flush("connect failed")
             }
         }
     }
@@ -136,15 +141,24 @@ final class AppModel: ObservableObject {
         uploadTask = Task { [weak self] in
             guard let self else { return }
             self.overlayPhase = .sending
+
+            // One batch per attempt, so a failure arrives as a single message
+            // containing everything that led up to it.
+            Telemetry.shared.begin("upload starting (\(artwork.palette.title), \(artwork.payload.count) bytes)")
+
             do {
                 if !self.ble.state.isReady {
                     try await self.ble.connect()
                 }
                 try await self.ble.send(payload: artwork.payload)
                 self.overlayPhase = .celebrating
+                Telemetry.shared.flush("upload ok")
             } catch {
                 self.overlayPhase = nil
                 self.present(error)
+                let message = (error as? LocalizedError)?.errorDescription ?? "\(error)"
+                Telemetry.shared.log("error: \(message)")
+                Telemetry.shared.flush("upload failed")
             }
             self.uploadTask = nil
         }

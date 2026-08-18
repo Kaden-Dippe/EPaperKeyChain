@@ -17,3 +17,6 @@ xcuserdata/
 *.xcworkspace/xcuserdata/
 *.xcodeproj/xcuserdata/
 *.xcodeproj/project.xcworkspace/xcshareddata/IDEWorkspaceChecks.plist
+
+# Local telemetry config: the ntfy topic is the only access control there is
+ios/EPaperNecklace/EPaperNecklace/Telemetry.plist
