@@ -215,6 +215,69 @@ chunk, and the outcome. Chunk logging is sampled because at an unnegotiated
 limited window, so treat it as a live channel rather than an archive; the
 unified log keeps the same lines on the device regardless.
 
+## Pitfalls
+
+Two known ways this can behave oddly, both of them cases where the logs either
+mislead or say nothing at all. Worth reading before concluding something is
+broken.
+
+### MTU negotiation is unverified
+
+The chunk size is whatever `maximumWriteValueLength(for: .withoutResponse)`
+reports, which CoreBluetooth defines as ATT_MTU − 3. What that number actually
+is depends on a negotiation between iOS and NimBLE that neither of us has
+watched happen, and it changes the transfer by a factor of twenty-five:
+
+| ATT_MTU | chunk | packets for 5,512 bytes |
+| --- | --- | --- |
+| 23 (never negotiated up) | 20 | 276 |
+| 185 (common on iOS) | 182 | 31 |
+| 517 (NimBLE maximum) | 514 | 11 |
+
+**What you'd see.** The first telemetry line of every transfer reports it:
+
+```
+transfer: 5512 bytes, chunk 182 (withoutResponse 182, withResponse 512), 31 packets
+```
+
+If `chunk` is 20, the MTU never grew. The transfer still works, but it takes far
+longer, the progress ring crawls, and you are 276 round trips away from an
+answer instead of 31 — which also makes a chunk timeout much more likely to bite
+somewhere in the middle.
+
+**What to do.** That's a firmware-side fix: NimBLE has its own maximum, set with
+`NimBLEDevice::setMTU()`, and the peripheral has to accept a larger exchange. It
+is not something the app can force.
+
+Note also that `withResponse` typically reports 512 regardless, because iOS will
+happily split a larger write into a queued long write. Taking the smaller of the
+two is what keeps chunks at true ATT_MTU − 3; if that clamp were removed, iOS
+could send a long write that the firmware isn't expecting.
+
+### A crash or force-quit loses the remote log
+
+Telemetry batches lines in memory and posts them once, at the end of the
+operation. If the app is killed between `begin` and `flush` — a crash, or you
+swiping it away mid-transfer — that batch dies with it and **nothing reaches
+ntfy**.
+
+**Why this misleads.** Silence is ambiguous. No message can mean the transfer
+never started, *or* that it got a long way in and then the app died. A genuine
+failure always produces an `upload failed` message, because every error path
+unwinds through the flush and the timeouts guarantee an error eventually
+arrives. So:
+
+| what you see | what it means |
+| --- | --- |
+| `upload ok` | it worked |
+| `upload failed` + error line | it failed, and the batch tells you where |
+| nothing at all | the app died, or telemetry isn't configured |
+
+**What to do.** The unified log on the phone still has every line, so nothing is
+truly lost — `OSLogStore` can read it back on-device, or Console.app can from a
+Mac. Before assuming a crash, check that the topic is actually configured: an
+unset `NTFY_TOPIC` produces exactly the same silence.
+
 ## Firmware notes
 
 The app is written against the protocol in `Image_Transfer_Protocol.txt` and the
