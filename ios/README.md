@@ -140,23 +140,100 @@ configuration. Everything below is a repository **secret** except
 
 ### Getting the `.p12`
 
-With a Mac: Xcode → Settings → Accounts → Manage Certificates → create an Apple
-Distribution certificate, then in Keychain Access right-click it → Export as
-`.p12`. Then `base64 -i cert.p12 | pbcopy`.
+A certificate is just Apple countersigning a public key you generated. The
+matching **private key never leaves your machine**, which is why the `.cer`
+Apple hands back is useless on its own — the `.p12` is the pair of them
+bundled together, and that pair is what CI needs to sign anything.
 
-Without a Mac, using openssl anywhere:
+On a Mac, Keychain Access does the key generation and request for you: Xcode →
+Settings → Accounts → Manage Certificates → + → Apple Distribution, then in
+Keychain Access right-click the certificate → Export as `.p12`.
+
+#### Doing it with openssl, on any machine
+
+**1. Generate a private key and a signing request.**
 
 ```
-openssl req -new -newkey rsa:2048 -nodes -keyout key.pem -out request.csr
-# upload request.csr at developer.apple.com → Certificates → +  (Apple Distribution)
-# download the resulting distribution.cer, then:
+openssl req -new -newkey rsa:2048 -nodes \
+  -keyout key.pem -out request.csr \
+  -subj "/emailAddress=you@example.com/CN=Your Name/C=US"
+```
+
+`-nodes` means "no DES" — the key is written unencrypted, which keeps the
+later steps non-interactive. `-subj` supplies the fields the portal would
+otherwise prompt for; the values are cosmetic but the flag avoids an
+interactive prompt. You now have a secret (`key.pem`) and something safe to
+share (`request.csr`).
+
+**2. Get it signed.** developer.apple.com → Certificates, IDs & Profiles →
+Certificates → + → **Apple Distribution** → upload `request.csr` → download
+`distribution.cer`.
+
+**3. Convert Apple's certificate to PEM.** Despite the `.cer` extension it is
+DER-encoded binary, so it has to be converted before openssl will combine it:
+
+```
 openssl x509 -in distribution.cer -inform DER -out cert.pem -outform PEM
-openssl pkcs12 -export -inkey key.pem -in cert.pem -out cert.p12
-base64 -i cert.p12
 ```
 
-Guard `key.pem` and the `.p8` — both are credentials, and neither belongs in
-this repository.
+**4. Bundle the certificate and private key into a `.p12`.**
+
+```
+openssl pkcs12 -export -legacy \
+  -inkey key.pem -in cert.pem -out cert.p12
+```
+
+It prompts for an export password — whatever you choose here is the
+`P12_PASSWORD` secret. Don't leave it empty; an empty password makes
+`security import` behave unpredictably on the runner.
+
+`-legacy` matters. OpenSSL 3 defaults to modern PKCS#12 encryption that
+Apple's `security import` cannot read, and it fails with an unhelpful error
+deep inside the signing step. You can see the difference on any `.p12` with
+`openssl pkcs12 -info -noout`:
+
+```
+# without -legacy (unusable by the runner)
+PKCS7 Encrypted data: PBES2, PBKDF2, AES-256-CBC, Iteration 2048, PRF hmacWithSHA256
+
+# with -legacy
+PKCS7 Encrypted data: pbeWithSHA1And40BitRC2-CBC, Iteration 2048
+Shrouded Keybag:      pbeWithSHA1And3-KeyTripleDES-CBC, Iteration 2048
+```
+
+If your openssl rejects `-legacy`, ask for the old algorithms explicitly
+instead:
+
+```
+openssl pkcs12 -export -inkey key.pem -in cert.pem -out cert.p12 \
+  -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg sha1
+```
+
+**5. Check it before spending a CI run on it.** The first command prints the
+certificate's subject and validity window; the second is silent when a private
+key is present, and prints `Mac verify error: invalid password?` if you
+mistype the password:
+
+```
+openssl pkcs12 -in cert.p12 -nokeys -legacy | openssl x509 -noout -subject -dates
+openssl pkcs12 -in cert.p12 -nocerts -legacy -noout
+```
+
+**6. Base64 it for the secret.** The flag differs by platform, and on Linux
+`-w0` matters — without it the output is wrapped at 76 columns:
+
+```
+base64 -i cert.p12 | pbcopy      # macOS
+base64 -w0 cert.p12              # Linux
+```
+
+#### Afterwards
+
+Keep `key.pem` and `cert.p12` somewhere safe, such as a password manager — not
+in this repository. If you lose the private key you cannot recover the
+certificate; you have to revoke it and issue a new one, and Apple caps how
+many distribution certificates an account may hold at once. The same goes for
+the `.p8`, which Apple lets you download exactly once.
 
 ### First run
 
