@@ -204,6 +204,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Tiny Gallery";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Tiny Gallery uses Bluetooth to send pictures to your e-paper necklace.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo to show on your necklace.";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDarkContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -233,6 +234,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Tiny Gallery";
 				INFOPLIST_KEY_NSBluetoothAlwaysUsageDescription = "Tiny Gallery uses Bluetooth to send pictures to your e-paper necklace.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "Take a photo to show on your necklace.";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDarkContent;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
