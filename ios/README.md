@@ -135,9 +135,8 @@ branches** to `master` only and a job running from anywhere else cannot see
 them. You also get a deployment history in the Environments tab.
 
 `IOS_BUNDLE_ID` is a repository **variable** rather than a secret — it isn't
-sensitive — and `NTFY_TOPIC` stays a repository **secret**, because
-`ios-build.yml` uses it too and declares no environment. A job that declares an
-environment sees both sets, so mixing them is fine.
+sensitive. `NTFY_TOPIC` goes in the environment too, since `testflight.yml` is
+now the only workflow that uses it.
 
 | Name | What it is | Where it comes from |
 | --- | --- | --- |
@@ -223,9 +222,15 @@ Pick a long random topic name first. It is the *only* access control ntfy's
 public server offers — anyone who knows it can read your logs and post to them.
 
 **Building in CI** (the usual case, since TestFlight builds come from the
-workflow): add the topic as a repository secret named `NTFY_TOPIC`, under
-Settings → Secrets and variables → Actions. The workflow writes the plist
-before building. Nothing to do locally, and the topic never enters the repo.
+workflow): add the topic as a secret named `NTFY_TOPIC` in the `testflight`
+environment, alongside the Apple credentials. `testflight.yml` writes the plist
+before archiving. Nothing to do locally, and the topic never enters the repo.
+
+Note that `ios-build.yml` deliberately does *not* configure telemetry. It only
+compiles for the Simulator and throws the binary away — nothing ever launches
+it — so a topic there would be baked into an app nobody runs. **No CI workflow
+produces log messages.** Everything you see on the topic comes from the app on
+your phone.
 
 **Building locally in Xcode:** copy the example and fill in the same topic —
 
