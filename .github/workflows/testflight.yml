@@ -28,6 +28,14 @@ jobs:
     name: Archive and upload
     runs-on: macos-latest
 
+    # The Apple credentials live in this environment rather than as repository
+    # secrets. workflow_dispatch lets the caller choose any branch, and the
+    # workflow file from that branch is what runs - so with repository secrets,
+    # a branch carrying a modified copy of this file could be dispatched and
+    # handed the signing certificate. Restricting the environment's deployment
+    # branches to master means a job running from anywhere else cannot see them.
+    environment: testflight
+
     env:
       PROJECT: ios/EPaperNecklace/EPaperNecklace.xcodeproj
       SCHEME: EPaperNecklace

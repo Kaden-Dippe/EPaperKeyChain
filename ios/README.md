@@ -122,9 +122,22 @@ Swift file named in the comment beside it. The two are meant to stay in sync.
 Connect. It is **manual only** — run it from the Actions tab — because each run
 consumes a build number.
 
-It needs an Apple Developer Program membership, and eight pieces of
-configuration. Everything below is a repository **secret** except
-`IOS_BUNDLE_ID`, which is a repository **variable** (it isn't sensitive).
+It needs an Apple Developer Program membership, and nine pieces of
+configuration.
+
+The eight Apple credentials belong to a GitHub **environment** named
+`testflight` (Settings → Environments → New environment), not to repository
+secrets. `workflow_dispatch` lets whoever runs it pick any branch, and the
+workflow file *from that branch* is what executes — so with repository secrets,
+a branch carrying a doctored copy of `testflight.yml` could be dispatched and
+handed your distribution certificate. Set the environment's **deployment
+branches** to `master` only and a job running from anywhere else cannot see
+them. You also get a deployment history in the Environments tab.
+
+`IOS_BUNDLE_ID` is a repository **variable** rather than a secret — it isn't
+sensitive — and `NTFY_TOPIC` stays a repository **secret**, because
+`ios-build.yml` uses it too and declares no environment. A job that declares an
+environment sees both sets, so mixing them is fine.
 
 | Name | What it is | Where it comes from |
 | --- | --- | --- |
@@ -168,6 +181,13 @@ log is uploaded as an artifact on both success and failure.
 
 Once a build is processed (a few minutes), it appears in TestFlight for
 internal testers with no review needed.
+
+`ITSAppUsesNonExemptEncryption = NO` is set in the project's build settings.
+Without it, App Store Connect asks about export compliance on **every** build
+and withholds it from testers until answered. The app qualifies for the
+exemption: it uses no encryption of its own, only the platform's HTTPS and
+Bluetooth. If you ever add your own cryptography, that declaration has to be
+revisited — it is a legal statement to Apple, not a build flag.
 
 ### Why not Fastlane
 
